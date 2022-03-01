@@ -1,0 +1,487 @@
+---
+title: "Bookbinders Book Club"
+author: "Jordi López Sintas"
+date: "3/19/2018"
+output:
+  pdf_document: default
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = F, warning = F)
+```
+
+# Los datos
+
+The case Bookbinder Book Club, BBBClub, illustrates the use of three ways that can be use to select the potential clients that will be the target of our marketing efforts: (1) the traditional RFM model, (2) the linear model, and (3) the logistic model.
+
+We need two data sets, one historic data set with the past behavior of a sample of clients, and another data set with the data of possible new clients of a book, in this case.
+
+## The historic data set with the past behavior of a sample of clients
+
+```{r data}
+
+BBBClub.choice<-read.delim(
+  "R-Bookbinders Book Club Data (Customer Choice).txt")
+BBBClub.holdout<-read.delim(
+  "R-Bookbinders Book Club Data (Customer Choice) Holdout Sample.txt")
+
+knitr::kable(
+  t(head(BBBClub.choice)), 
+  digits=2, 
+  caption = "Descripción de las 6 primeras empresas de los datos históricos")
+
+```
+
+## The data set with prospects
+
+```{r}
+knitr::kable(
+  t(head(BBBClub.holdout)), 
+  digits=2, 
+  caption = "Descripción de las 6 primeras empresas de los nuevos datos ")
+```
+
+
+# RFM model
+
+The RFM is based on the Recency, Frequency and Monetary value of old clients with similar characteristics.
+
+- Recency: Tiempo transcurrido desde la última compra (< 2 wks, 2-6 wks, 7-8 wks, and  > 12 wks)
+- Frequency: Número de compras realizadas desde una determinada fecha hasta la actualidad (10, 8, 6, 3, 1)
+- Monetary Value: Valor de las compras desde una determina fecha (> 500, 300-500, 200-300, 100-200, < 200)
+
+## First we apply the RFM model to the new data (prospects)
+
+Asignar una puntuación a R, F y M según la experiencia. Por ejemplo:
+
+*Recency*:
+
+últimos 3meses, 25 puntos
+3-6 meses, 20 puntos
+6-9 meses, 10 putnos
+10-18 meses, 5, puntos
+Más de 18 meses, 0 puntos
+
+Aplicar una regla similar para *Frequency* y *Monetary*
+
+Finalmente formamos una puntuación en RFM (*scores*) sumándolos (se podrían ponderar según la importancia de *Recency*, *Frequency* y *Monetary Value*)
+
+Esto es lo que hacemos con la función RFM que tenemos en el guión `marketing-models.R`.
+
+```{r RFM, echo=FALSE}
+source("marketing-models.R")
+BBBClub.holdout <- RFM(BBBClub.holdout)
+#head(BBBClub.holdout)
+BBBClub.holdout$RFM<-BBBClub.holdout$R +BBBClub.holdout$F+BBBClub.holdout$M
+knitr::kable(t(head(BBBClub.holdout)), digits=2, caption = "Descripción de las 6 primeras empresas de los nuevos datos ")
+```
+
+## Plots
+```{r RFM-plots}
+library(ggplot2)
+ggplot(BBBClub.holdout, aes(R)) +
+  geom_histogram()
+ggplot(BBBClub.holdout, aes(F)) +
+  geom_histogram()
+ggplot(BBBClub.holdout, aes(M)) +
+  geom_histogram()
+ggplot(BBBClub.holdout, aes(RFM)) +
+  geom_histogram()
+
+```
+
+# The linear model
+
+Now we calibrate the model using a Linear regression model. We use the choice data set (historic data)
+
+```{r}
+BBBClub.lm <- lm(choice~gender+amount+freq+last+first+child+youth+cook+diy+art, data=BBBClub.choice)
+
+#install.packages("stargazer")
+library(stargazer)
+stargazer(BBBClub.lm, type="text")
+```
+
+Use the calibrated model to predict choice on the  holdout sample (we predict the probability of buying the art book using de model from choice data)
+
+```{r}
+BBBClub.holdout$plm <- predict(BBBClub.lm, BBBClub.holdout)
+knitr::kable(
+  t(head(BBBClub.holdout)), 
+  digits=2, 
+  caption = "Descripción de los 6 primeras individuos de los nuevos datos")
+
+```
+
+# The logistic model
+
+Use the logistic model with the holdout sample (we predict the probability of buying the art book using de model from choice data using a Logistic regression model)
+
+```{r}
+
+BBBClub.glm<-glm(
+  choice~gender+amount+freq+last+first+child+youth+cook+diy+art, 
+  family=binomial(), 
+  data=BBBClub.choice)
+stargazer(BBBClub.glm, type="text" )
+BBBClub.holdout$pglm <- predict(
+  BBBClub.glm, 
+  BBBClub.holdout, 
+  type="response")
+
+```
+
+## Test accuracy of prediction
+
+```{r}
+confusion.glm(BBBClub.choice, BBBClub.glm)
+```
+
+## See the new set of variables
+
+```{r}
+knitr::kable(
+  t(head(BBBClub.holdout)), 
+  digits=2, 
+  caption = "Descripción de los 6 primeras individuos de los nuevos datos")
+```
+
+# Apply the calibrated models to make marketing decisions:  select the segments that will be the target  of our marketing efforts
+
+
+## Divide individuals in 10 segments according to quantiles
+
+```{r}
+quantile(BBBClub.holdout$RFM, probs=seq(.1,1,.1))
+quantile(BBBClub.holdout$plm, probs=seq(.1,1,.1))
+```
+
+## Use the models por selecting the target of our marketing efforts
+
+### Number of people that bought the book in the choice sample
+
+```{r}
+exit<-sum(BBBClub.holdout$choice)
+exit
+```
+
+## Using the logistic model
+
+```{r}
+library(tidyverse)
+BBBClub.holdout.bypglm<-arrange(BBBClub.holdout, desc(pglm))
+
+knitr::kable(
+  t(head(BBBClub.holdout.bypglm)), 
+  digits=2, 
+  caption = "Descripción de los 6 primeras individuos de los nuevos datos")
+
+
+#Prepare the report for logistic model
+source("marketing-models.R")
+
+```
+
+## save quartiles
+
+The `ntile` function creates groups according to a variable. In this case the variable is `BBBClub.holdout.bypglm$pglm` and will form 10 groups. Using the argument `reverse=TRUE` it would be necessary the function `reverse.quartile`.
+
+The function `reverse.quartile` in the `marketing-models.R` script changes the order or quartiles, so that the ones with the highest probability are placed in the first decile, and adds to the data base a new variable call `decil`.
+
+
+```{r}
+BBBClub.holdout.bypglm$quartile <- ntile(BBBClub.holdout.bypglm$pglm, 10) 
+
+BBBClub.holdout.bypglm <- reverse.quartile(BBBClub.holdout.bypglm)
+```
+
+## check
+
+```{r}
+knitr::kable(t(head(BBBClub.holdout.bypglm)), digits=2, caption = "Descripción de los 6 primeras individuos de los nuevos datos")
+```
+
+## Cummulative distribution of success (what would have happened if we had used glm to target segments)
+
+```{r}
+
+BBBClub.holdout.bypglm$choice2<-BBBClub.holdout.bypglm$choice/sum(BBBClub.holdout.bypglm$choice)
+
+BBBClub.holdout.bypglm$acumul<-cumsum(BBBClub.holdout.bypglm$choice2)
+
+knitr::kable(t(head(BBBClub.holdout.bypglm)), digits=2, caption = "Descripción de los 6 primeras individuos de los nuevos datos")
+```
+
+## by quartile count the success ratio
+
+```{r}
+table1<-BBBClub.holdout.bypglm %>%
+  group_by(decil) %>%
+  summarize(
+    count=n(),
+    mean.choice=sum(choice)/204
+  )
+table1
+```
+
+## Add the cumulative distribution 
+
+```{r}
+
+table1$acumul<-cumsum(table1$mean.choice)
+table1
+```
+
+## Add the cumulative mailing to be sent
+
+```{r}
+
+units.mailed<- c(5000,10000,15000,20000,25000,30000,35000,40000,45000,50000)
+#units.mailed
+#add them to table
+table1$mailed<-units.mailed
+
+```
+
+## Now we add the cost, the market potencial, the units sold, the margin  and profit
+
+```{r}
+#Add cost
+table1$cost<-table1$mailed*0.65
+#Add market potential
+market.potential<-50000*(exit/2300)
+#Add units sold
+table1$sold<-table1$acumul*(market.potential)
+#table1
+#Add profit
+margin<-31.95-1.45*15
+#margin
+table1$profit<-table1$sold*margin-table1$cost
+table1
+plot(table1$profit)
+```
+
+## Check if we improve the profit seleccting onlya few segments
+
+```{r}
+print("Total Income")
+sum(table1$profit)
+print("Total Costs")
+sum(table1$cost)
+print("Total Profit")
+total.profit1<-sum(table1$profit) - sum(table1$cost)
+total.profit1
+print("Total relative profit")
+rendimiento1<-total.profit1/sum(table1$cost)
+rendimiento1
+```
+
+## Use linear model for selecting the segments to be the target of marketing efforts
+
+### order the data base for linear model
+
+```{r}
+BBBClub.holdout.byplm<-arrange(BBBClub.holdout, desc(plm))
+knitr::kable(t(head(BBBClub.holdout.byplm)), digits=2, caption = "Descripción de los 6 primeras individuos de los nuevos datos")
+
+
+```
+
+
+### Prepare the report for linear model
+
+```{r}
+source("marketing-models.R")
+
+#save quartiles
+BBBClub.holdout.byplm$quartile <- ntile(BBBClub.holdout.byplm$plm, 10) 
+BBBClub.holdout.byplm <- reverse.quartile(BBBClub.holdout.byplm)
+#check
+knitr::kable(t(head(BBBClub.holdout.byplm)), digits=2, caption = "Descripción de los 6 primeras individuos de los nuevos datos")
+
+```
+
+### Cummulative probability of success
+
+```{r}
+BBBClub.holdout.byplm$choice2<-BBBClub.holdout.byplm$choice/sum(BBBClub.holdout.byplm$choice)
+BBBClub.holdout.byplm$acumul<-cumsum(BBBClub.holdout.byplm$choice2)
+
+```
+
+### Prepare the table for seleccting the segments
+
+```{r}
+#by quartile count the exit ratio
+
+table.lm<-BBBClub.holdout.byplm %>%
+  group_by(decil) %>%
+  summarize(
+    count=n(),
+    mean.choice=sum(choice)/204
+  )
+table.lm
+```
+
+### Add the cumulative distribution
+
+```{r}
+ 
+table.lm$acumul<-cumsum(table.lm$mean.choice)
+table.lm
+```
+
+### Add the cumulative mailing to be sent and add it to the table
+
+```{r}
+
+units.mailed<- c(5000,10000,15000,20000,25000,30000,35000,40000,45000,50000)
+units.mailed
+#add them to table
+table.lm$mailed<-units.mailed
+```
+
+### Add cost, market potential, units sold, margin and profit tothe table
+
+```{r}
+table.lm$cost<-table.lm$mailed*0.65
+#Add market potential
+market.potential<-50000*(exit/2300)
+#Add units sold
+table.lm$sold<-table.lm$acumul*(market.potential)
+table.lm
+#Add profit
+margin<-31.95-1.45*15
+margin
+table.lm$profit<-table.lm$sold*margin-table.lm$cost
+table.lm
+plot(table.lm$profit)
+```
+
+### Check if we improve the profit seleccting onlya few segments
+
+```{r}
+print("Total Income")
+sum(table.lm$profit)
+print("Total cost")
+sum(table.lm$cost)
+total.profit.lm<-sum(table.lm$profit) - sum(table.lm$cost)
+print("Total profit")
+total.profit.lm
+rendimiento.lm<-total.profit.lm/sum(table.lm$cost)
+print("Relative profit")
+rendimiento.lm
+```
+
+
+## RFM model report 
+
+### order the data base for RFM model
+
+```{r}
+BBBClub.holdout.byRFM<-arrange(BBBClub.holdout, desc(RFM))
+
+knitr::kable(t(head(BBBClub.holdout.byRFM)), digits=2, caption = "Descripción de los 6 primeras individuos de los nuevos datos")
+#Prepare the report for logistic model
+source("marketing-models.R")
+```
+
+### Devide data according to quartiles
+
+```{r}
+#save quartiles
+BBBClub.holdout.byRFM$quartile <- ntile(BBBClub.holdout.byRFM$RFM, 10) 
+BBBClub.holdout.byRFM <- reverse.quartile(BBBClub.holdout.byRFM)
+
+#check
+knitr::kable(t(head(BBBClub.holdout.byRFM)), digits=2, caption = "Descripción de los 6 primeras individuos de los nuevos datos")
+```
+
+### Cummulative distribution of success
+
+```{r}
+BBBClub.holdout.byRFM$choice2<-BBBClub.holdout.byRFM$choice/sum(BBBClub.holdout.byRFM$choice)
+BBBClub.holdout.byRFM$acumul<-cumsum(BBBClub.holdout.byRFM$choice2)
+
+```
+
+### Prepare the summary table
+
+```{r}
+#by quartile count the exit ratio
+
+table.RFM<-BBBClub.holdout.byRFM %>%
+  group_by(decil) %>%
+  summarize(
+    count=n(),
+    mean.choice=sum(choice)/204,
+    mean.RFM=mean(RFM)
+  )
+table.RFM
+```
+
+### Add the cumulative distribution 
+
+```{r}
+#Add the cumulative distribution 
+table.RFM$acumul<-cumsum(table.RFM$mean.choice)
+table.RFM
+```
+
+
+```{r}
+#Add the cumulative mailing to be sent
+units.mailed<- c(5000,10000,15000,20000,25000,30000,35000,40000,45000,50000)
+#units.mailed
+#add them to table
+table.RFM$mailed<-units.mailed
+table.RFM
+```
+
+### Add cost, units sold, margin, and profit
+
+```{r}
+#Add cost
+table.RFM$cost<-table.RFM$mailed*0.65
+#Add market potential
+market.potential<-50000*(exit/2300)
+#Add units sold
+table.RFM$sold<-table.RFM$acumul*(market.potential)
+table.RFM
+#Add profit
+margin<-31.95-1.45*15
+margin
+table.RFM$profit<-table.RFM$sold*margin-table.RFM$cost
+table.RFM
+plot(table.RFM$profit)
+```
+
+# Compare results
+
+```{r}
+print("Total income:")
+sum(table.RFM$profit)
+print("Total cost:")
+sum(table.RFM$cost)
+print("Total profit:")
+total.profit.RFM<-sum(table.RFM$profit) - sum(table.RFM$cost)
+total.profit.RFM
+print("Total relative profit:")
+rendimiento.RFM<-total.profit.RFM/sum(table.RFM$cost)
+rendimiento.RFM
+```
+
+# Compare findings
+
+## The glm model
+
+```{r}
+knitr::kable(table1, digits=2, caption = "Logistic model")
+knitr::kable(table.lm, digits=2, caption = "Linear model")
+knitr::kable(table.RFM, digits=2, caption = "RFM model")
+```
+
+
+
